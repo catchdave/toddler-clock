@@ -4,13 +4,6 @@ enum StatusLight {
   OFF
 };
 
-enum StatusLightOverride { 
-  SLEEP_OVERRIDE,
-  WAKE_OVERRIDE,
-  OFF_OVERRIDE,
-  NO_OVERRIDE
-};
-
 struct ToddlerClockMode
 {
   private:

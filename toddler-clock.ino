@@ -47,7 +47,7 @@ int dimmerRawValue = 0;
 int CUR_BRIGHTNESS = 15;
 bool colon = true;
 StatusLight statusLight = OFF;
-StatusLightOverride statusLightOverride = NO_OVERRIDE;
+StatusLight statusLightOverride = OFF;
 unsigned long modeButtonPressedTime, modeButtonReleasedTime = 0;
 bool blinkLEDState = false;
 int curAdjustSpeed = ADJUST_TIME_DEFAULT_SPEED;
@@ -456,20 +456,16 @@ void setBrightness(int value) {
 
 void statusRotate() {
   digitalWrite(pinStatusButtonLED, HIGH);
-  if (statusLightOverride == NO_OVERRIDE) {
-    statusLightOverride = SLEEP_OVERRIDE;
+  if (statusLightOverride == OFF && getAlarmStatus() == OFF) {
+    statusLightOverride = SLEEP;
     statusSleep();
   }
-  else if (statusLightOverride == SLEEP_OVERRIDE) {
-    statusLightOverride = WAKE_OVERRIDE;
+  else if ((statusLightOverride == OFF && getAlarmStatus() == SLEEP) || statusLightOverride == SLEEP) {
+    statusLightOverride = WAKE;
     statusWake();
   }
-  else if (statusLightOverride == WAKE_OVERRIDE) {
-    statusLightOverride = OFF_OVERRIDE;
-    statusOff();
-  }
   else {
-    statusLightOverride = NO_OVERRIDE; // stop overriding
+    statusLightOverride = OFF; // stop overriding
     digitalWrite(pinStatusButtonLED, LOW);
     checkIfMissedAlarms();
   }
@@ -499,7 +495,7 @@ void statusOff() {
 
 void checkAlarms()
 {
-  if (statusLightOverride != NO_OVERRIDE) {
+  if (statusLightOverride != OFF) {
     return; // alarm status lights have been overridden
   }
   
