@@ -88,7 +88,7 @@ void setup()
 {
   Serial.begin(57600);
   Serial.println();
-  Serial.println("-~- Toddler Clock Initializing -~-");
+  Serial.println(F("-~- Toddler Clock Initializing -~-"));
 
   clockDisplay.begin(0x70);
   initializeRtc();
@@ -115,7 +115,7 @@ void setup()
 
   showAlarmTimes();
   checkIfMissedAlarms();
-  Serial.println("-~- Toddler Clock Initialization complete -~-");
+  Serial.println(F("-~- Toddler Clock Initialization complete -~-"));
 }
 
 void setDaylightSavings(int newDstState)
@@ -167,6 +167,7 @@ void loop()
   // Tempreature display button [orange LED button]
   buttonTempShow.loop();
   if (buttonTempShow.isPressed()) {
+    printMessageWithTime(F("Temp (orange) button pressed"));
     if (MODE.isClock()) {
       MODE.setTemperature();
     } else if (MODE.isTemperature()) {
@@ -283,12 +284,14 @@ void updateClockDisplay(DateTime timeToDisplay)
   uint8_t colonBitMask = 0x00;
   int decimalTime = getDecimalTime(timeToDisplay, USE_24_HR_CLOCK);
   colon = !colon;
+
+  bool setttingUpOrDown = (buttonSetUp.getState() == LOW) || (buttonSetDown.getState() == LOW);
   
   if (colon || MODE.isInAnySet()) {
     colonBitMask |= 0x02;
   }
-  if (MODE.isInAnySet()) {
-    clockDisplay.blinkRate(2);
+  if (MODE.isInAnySet() && !setttingUpOrDown) {
+    clockDisplay.blinkRate(1);
   }
   else {
     clockDisplay.blinkRate(0);
@@ -455,16 +458,21 @@ void setBrightness(int value) {
 }
 
 void statusRotate() {
+  printMessageWithTime(F("Override (red) button pressed"));
+  
   digitalWrite(pinStatusButtonLED, HIGH);
-  if (statusLightOverride == OFF && getAlarmStatus() == OFF) {
+  if (statusLightOverride == OFF && (getAlarmStatus() == OFF || getAlarmStatus() == WAKE)) {
+    printMessageWithTime(F("Override to SLEEP"));
     statusLightOverride = SLEEP;
     statusSleep();
   }
   else if ((statusLightOverride == OFF && getAlarmStatus() == SLEEP) || statusLightOverride == SLEEP) {
+    printMessageWithTime(F("Override to WAKE"));
     statusLightOverride = WAKE;
     statusWake();
   }
   else {
+    printMessageWithTime(F("Override OFF"));
     statusLightOverride = OFF; // stop overriding
     digitalWrite(pinStatusButtonLED, LOW);
     checkIfMissedAlarms();
@@ -477,6 +485,8 @@ void statusSleep() {
   digitalWrite(pinRedStatus, HIGH);
   digitalWrite(pinGreenStatus, LOW);
   setRgbColor(255, 0, 0);
+
+  printMessageWithTime(F("Setting to status SLEEP"));
 }
 
 void statusWake() {
@@ -484,6 +494,8 @@ void statusWake() {
   digitalWrite(pinGreenStatus, HIGH);
   digitalWrite(pinRedStatus, LOW);
   setRgbColor(0, 255, 0);
+
+  printMessageWithTime(F("Setting to status WAKE"));
 }
 
 void statusOff() {
@@ -491,6 +503,8 @@ void statusOff() {
   digitalWrite(pinGreenStatus, LOW);
   digitalWrite(pinRedStatus, LOW);
   setRgbColor(0, 0, 0);
+
+  printMessageWithTime(F("Setting to status OFF"));
 }
 
 void checkAlarms()
@@ -500,15 +514,21 @@ void checkAlarms()
   }
   
   if (rtc.alarmFired(ALARM_SLEEP)) {
-    statusSleep();
+    printMessageWithTime(F("Sleep alarm fired"));
+    if (getAlarmStatus() != SLEEP) statusSleep();
     rtc.clearAlarm(ALARM_SLEEP);
+    
+    Serial.println(F("Clearing Sleep alarm"));
   }
 
   if (rtc.alarmFired(ALARM_WAKE)) {
-    statusWake();
+    if (getAlarmStatus() != WAKE) statusWake();
 
-    if (now >= wakeLightOffTime) {
+    int now_t = getDecimalTime(now, true);
+    int wake_t = getDecimalTime(wakeLightOffTime, true);
+    if (now_t >= wake_t) {
       rtc.clearAlarm(ALARM_WAKE);
+      Serial.println(F("Clearing Wake alarm"));
       statusOff();
     }
   }
@@ -522,26 +542,33 @@ void printTimePart(DateTime dt)
     Serial.print(dt.minute(), DEC);
 }
 
+void printMessageWithTime(String s)
+{
+  Serial.print("[");
+  printTimePart(now);
+  Serial.println("] " + s);
+}
+
 void printStatus() {
     DateTime now = rtc.now();
 
-    Serial.print("Current time: ");
+    Serial.print(F("Current time: "));
     Serial.print(now.year(), DEC);
     Serial.print('/');
     Serial.print(now.month(), DEC);
     Serial.print('/');
     Serial.print(now.day(), DEC);
-    Serial.print(" @ ");
+    Serial.print(F(" @ "));
     printTimePart(now);
-    Serial.print(" DST = ");
+    Serial.print(F(" DST = "));
     Serial.println(DST);
 
-    Serial.print("Sleep time: ");
-    printTimePart(rtc.getAlarm(ALARM_SLEEP));
-    Serial.print(" | Wake time: ");
-    printTimePart(rtc.getAlarm(ALARM_WAKE));
-    Serial.print(" | Wake-off time: ");
-    printTimePart(wakeLightOffTime);
+    Serial.print(F("Sleep time: "));
+    Serial.print(rtc.getAlarm(ALARM_SLEEP).timestamp());
+    Serial.print(F(" | Wake time: "));
+    Serial.print(rtc.getAlarm(ALARM_WAKE).timestamp());
+    Serial.print(F(" | Wake-off time: "));
+    Serial.print(wakeLightOffTime.timestamp());
     
     Serial.println();
     Serial.println();
@@ -551,7 +578,7 @@ void showAlarmTimes()
 {
   const int show_alarm_time = 3000;
   
-  Serial.println("Visual display of alarms");
+  Serial.println(F("Visual display of alarms"));
   updateClockDisplay(rtc.getAlarm(ALARM_SLEEP));
   statusSleep();
   delay(show_alarm_time);
@@ -561,25 +588,25 @@ void showAlarmTimes()
   delay(show_alarm_time);
 
   statusOff();
-  Serial.println("Visual display complete.");
+  Serial.println(F("Visual display complete."));
 }
 
 void initializeRtc()
 {
   bool resetTime = RESET_TIME_TO_COMPUTER;
   if ( !rtc.begin() ) {
-    Serial.println("Couldn't find RTC");
+    Serial.println(F("Couldn't find RTC"));
     Serial.flush();
     abort();
   }
 
   if (rtc.lostPower()) {
-    Serial.println("RTC lost power, let's set the time!");
+    Serial.println(F("RTC lost power, let's set the time!"));
     resetTime = true;
   }
 
   if (resetTime) {
-    Serial.println("Resetting time to computer time.");
+    Serial.println(F("Resetting time to computer time."));
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     
     setSleepAlarm(getDateTimeFromDecimal(DEFAULT_SLEEP_TIME));
@@ -599,14 +626,14 @@ void initizalizeDST()
   if (DST != 0 && DST != 1) {
     DST = buttonDst.getStateRaw();
     EEPROM.put(0, DST);
-    Serial.println("DST state stored in EEPROM in unknown state. Resetting to state of button");
+    Serial.println(F("DST state stored in EEPROM in unknown state. Resetting to state of button"));
   }
 
   // if the button changed when powered down, update state
   if (DST != buttonDst.getStateRaw()) { 
     DST = buttonDst.getStateRaw();
     setDaylightSavings(DST);
-    Serial.println("DST button state does not match value stored in EEPROM--updating");
+    Serial.println(F("DST button state does not match value stored in EEPROM--updating"));
   }
 }
 
@@ -633,15 +660,23 @@ void checkIfMissedAlarms()
   switch (getAlarmStatus()) {
     case SLEEP:
       statusSleep();
-      Serial.println("Assuming missed sleep alarm. Setting Sleep.");
+      Serial.println(F("Assuming missed sleep alarm. Setting Sleep."));
+      if (rtc.alarmFired(ALARM_WAKE)) {
+        rtc.clearAlarm(ALARM_WAKE);
+        Serial.println(F("Clearing previous WAKE alarm too."));
+      }
       break;
     case WAKE:
       statusWake();
-      Serial.println("Assuming missed wake alarm. Setting Wake.");
+      Serial.println(F("Assuming missed wake alarm. Setting Wake."));
+      if (rtc.alarmFired(ALARM_SLEEP)) {
+        rtc.clearAlarm(ALARM_SLEEP);
+        Serial.println(F("Clearing previous SLEEP alarm too."));
+      }
       break;
      default:
       statusOff();
-      Serial.println("Assuming missed off time. Setting status light off.");
+      Serial.println(F("Assuming missed off time. Setting status light off."));
   }
 }
 
