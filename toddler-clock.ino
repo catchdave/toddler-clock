@@ -12,6 +12,7 @@ Adafruit_7segment clockDisplay = Adafruit_7segment();
 RTC_DS3231 rtc;
 
 void printStatus();
+void blinkLEDLights();
 
 // Pins
 const int pinPot             = A0;
@@ -66,8 +67,8 @@ DateTime timesetDateTime; // current DT object that is being modified
 DateTime now;
 DateTime wakeLightOffTime;
 noDelay writeTimeToDisplay(500);
-noDelay debugConsole(1000, printStatus);
-noDelay blinkLEDLights(300); // generic timer for blinking all LEDs
+noDelay debugTimer(1000, printStatus);
+noDelay blinkTimer(300, blinkLEDLights); // generic timer for blinking all LEDs
 noDelay adjustTime(ADJUST_TIME_DEFAULT_SPEED);
 ezButton buttonStatusRotate(pinStatusButton);
 ezButton buttonMode(pinModeButton);
@@ -210,42 +211,50 @@ void loop()
       } 
     }
     
-    updateClockDisplay(MODE.isInAnySet() ? timesetDateTime : now);
+    if (MODE.isTemperature()) {
+      updateTemperatureDisplay();
+    } else {
+      updateTimeDisplay(MODE.isInAnySet() ? timesetDateTime : now);
+    }
   }
 
-  // blink any LEDs that need blnking
-  if (blinkLEDLights.update()) {
-    blinkLEDState = !blinkLEDState;
-    
-    if (MODE.isSetTime()) {
-      digitalWrite(pinModeButtonLED, blinkLEDState ? HIGH : LOW);
-      if (blinkLEDState) {
-        setRgbColor(148, 0, 211); // purple
-      }
-    }
-    else if (MODE.isSetSleepAlarm()) {
-      if (blinkLEDState) {
-        setRgbColor(255, 0, 0); // red
-      }
-    }
-    else if (MODE.isSetWakeAlarm()) {
-      if (blinkLEDState) {
-        setRgbColor(0, 255, 0); // green
-      }
-    }
-    if (MODE.isSetAnyAlarm()) {
-      digitalWrite(pinStatusButtonLED, blinkLEDState ? HIGH : LOW);
-    }
-    if (MODE.isInAnySet()) {
-      if (!blinkLEDState) {
-        setRgbColor(0, 0, 0);
-      }
-    }
-  }
-  
-  //debugConsole.update();
+  blinkTimer.update();
+  if (DEBUG) debugTimer.update();
 }
 // -- end main loop 
+
+/**
+ * Blink LED lights
+ */
+void blinkLEDLights()
+{
+  blinkLEDState = !blinkLEDState;
+    
+  if (MODE.isSetTime()) {
+    digitalWrite(pinModeButtonLED, blinkLEDState ? HIGH : LOW);
+    if (blinkLEDState) {
+      setRgbColor(148, 0, 211); // purple
+    }
+  }
+  else if (MODE.isSetSleepAlarm()) {
+    if (blinkLEDState) {
+      setRgbColor(255, 0, 0); // red
+    }
+  }
+  else if (MODE.isSetWakeAlarm()) {
+    if (blinkLEDState) {
+      setRgbColor(0, 255, 0); // green
+    }
+  }
+  if (MODE.isSetAnyAlarm()) {
+    digitalWrite(pinStatusButtonLED, blinkLEDState ? HIGH : LOW);
+  }
+  if (MODE.isInAnySet()) {
+    if (!blinkLEDState) {
+      setRgbColor(0, 0, 0);
+    }
+  }
+}
 
 
 int extractDigit(int V, int P)
@@ -254,37 +263,43 @@ int extractDigit(int V, int P)
   return abs(V) / pow[P] % 10;
 }
 
-void updateClockDisplay(DateTime timeToDisplay)
+/**
+ * Updates the display to show the current temperature in either C or F.
+ */
+void updateTemperatureDisplay()
 {
-  // Display Temp in fahrenheit or celicuis depending on mode
-  if (MODE.isTemperature()) {
-    float celcius = rtc.getTemperature();
-    float temperatureVal;
-    clockDisplay.clear();
+  float celcius = rtc.getTemperature();
+  float temperatureVal;
+  clockDisplay.clear();
     
-    if (USE_CELCIUS) {
-      temperatureVal = celcius;
-      clockDisplay.writeDigitNum(4, 0xc);
-    }
-    else {
-      temperatureVal = (celcius * 9/5) + 32;
-      clockDisplay.writeDigitNum(4, 0xf);
-    }
-
-    if (temperatureVal < 0) {
-      clockDisplay.writeDigitRaw(0, 0x40);
-    }
-    else if (temperatureVal >= 100) {
-      clockDisplay.writeDigitNum(0, extractDigit(temperatureVal, 2));
-    }
-    clockDisplay.writeDigitNum(1, extractDigit(temperatureVal, 1));
-    clockDisplay.writeDigitNum(3, extractDigit(temperatureVal, 0));
-    clockDisplay.writeDigitRaw(2, 0x10);
-    
-    clockDisplay.writeDisplay();
-    return;
+  if (USE_CELCIUS) {
+    temperatureVal = celcius;
+    clockDisplay.writeDigitNum(4, 0xc);
+  }
+  else {
+    temperatureVal = (celcius * 9/5) + 32;
+    clockDisplay.writeDigitNum(4, 0xf);
   }
 
+  // Since we have only 4 digits, temp display depends on sign and number of digits in value being displayed
+  if (temperatureVal < 0) {
+    clockDisplay.writeDigitRaw(0, 0x40);
+  }
+  else if (temperatureVal >= 100) {
+    clockDisplay.writeDigitNum(0, extractDigit(temperatureVal, 2));
+  }
+  clockDisplay.writeDigitNum(1, extractDigit(temperatureVal, 1));
+  clockDisplay.writeDigitNum(3, extractDigit(temperatureVal, 0));
+  clockDisplay.writeDigitRaw(2, 0x10);
+    
+  clockDisplay.writeDisplay();
+}
+
+/**
+ * Updates the display to show time
+ */
+void updateTimeDisplay(DateTime timeToDisplay)
+{
   uint8_t colonBitMask = 0x00;
   int decimalTime = getDecimalTime(timeToDisplay, USE_24_HR_CLOCK);
   colon = !colon;
@@ -605,11 +620,11 @@ void showAlarmTimes()
   const int show_alarm_time = 3000;
   
   Serial.println(F("Visual display of alarms"));
-  updateClockDisplay(rtc.getAlarm(ALARM_SLEEP));
+  updateTimeDisplay(rtc.getAlarm(ALARM_SLEEP));
   statusSleep();
   delay(show_alarm_time);
   
-  updateClockDisplay(rtc.getAlarm(ALARM_WAKE));
+  updateTimeDisplay(rtc.getAlarm(ALARM_WAKE));
   statusWake();
   delay(show_alarm_time);
 
