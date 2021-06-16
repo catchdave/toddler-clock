@@ -18,9 +18,9 @@ const int pinPot             = A0;
 const int pinModeButton      = 3;  // white button
 const int pinRedStatus       = 6;
 const int pinGreenStatus     = 7;
-const int pinStatusButton    = 8;  // red button
+const int pinStatusButton    = 8;  // red button The override button for the wake/sleep light (AKA Status Light)
 const int pinTempButton      = 2; // orange button
-const int pinStatusButtonLED = A1; // red led button
+const int pinStatusButtonLED = A1; // red led button. The LED for the statuslight button.
 const int pinTempButtonLED   = A2; // orange led button
 const int pinModeButtonLED   = A3; // white led button
 const int pinRgbRed          = 9;
@@ -30,16 +30,21 @@ const int pinSetUp           = 4;
 const int pinSetDown         = 5;
 const int pinDstButton       = 13; // yellow switch
 
-// Constants
+// Settings
+const bool DEBUG                    = false; // Set to true to print debug stats to console every second
 const int RESET_TIME_TO_COMPUTER    = false; // change to true to re-sync time to computer
 const int LONG_PRESS_TIME           = 2500; // 2.5 secs
-const int ADJUST_TIME_DEFAULT_SPEED = 300;
-const int MAX_SPEED                 = 25; // max speed for time change using up/down buttons
-const int DEFAULT_WAKE_LENGTH       = 60 * 60; // in seconds
-const float DEFAULT_SLEEP_TIME      = 19; // 24-hr decimal time (e.g. 6:45pm is 18.75)
+const int ADJUST_TIME_DEFAULT_SPEED = 300; // in milliseconds
+const int MAX_SPEED                 = 25; // max speed for time change using up/down buttons (in 100ms units, so 25 = 2.5 secs)
+const int DEFAULT_WAKE_LENGTH       = 60 * 60; // in seconds (3,600 = 1 hour)
+const float DEFAULT_SLEEP_TIME      = 19.75; // 24-hr decimal time (e.g. 6:45pm is 18.75)
 const float DEFAULT_WAKE_TIME       = 6.5; // 24-hr decimal time (e.g. 6:30am is 6.5)
+
+// Non-setting Constants
 const int ALARM_SLEEP               = 1;
 const int ALARM_WAKE                = 2;
+bool USE_24_HR_CLOCK                = false; // current state of 24-hour value 
+bool USE_CELCIUS                    = false; // current state of celicius value
 
 // Variables
 int dimmerValue = 0;       // variable to store the value coming from the sensor
@@ -51,8 +56,10 @@ StatusLight statusLightOverride = OFF;
 unsigned long modeButtonPressedTime, modeButtonReleasedTime = 0;
 bool blinkLEDState = false;
 int curAdjustSpeed = ADJUST_TIME_DEFAULT_SPEED;
+int  DST;
 
 // Object variables
+ToddlerClockMode MODE;
 DateTime timesetDateTime; // current DT object that is being modified
 DateTime now;
 DateTime wakeLightOffTime;
@@ -66,12 +73,6 @@ ezButton buttonTempShow(pinTempButton);
 ezButton buttonSetUp(pinSetUp);
 ezButton buttonSetDown(pinSetDown);
 ezButton buttonDst(pinDstButton);
-
-// Settings
-bool USE_24_HR_CLOCK       = false;
-bool USE_CELCIUS           = false;
-int  DST;
-ToddlerClockMode MODE;
 
 void setRgbColor(int red, int green, int blue)
 {
@@ -192,6 +193,7 @@ void loop()
     displayNeedsUpdating = true;
   }
 
+  // Update the display when needed
   if (displayNeedsUpdating) {
     now = rtc.now();
     if (MODE.modeJustChanged()) {
@@ -396,7 +398,6 @@ bool statusButtonMonitor()
       MODE.reset();
       
       digitalWrite(pinStatusButtonLED, LOW);
-      //setRgbColor(0, 0, 0);
       checkIfMissedAlarms();
     }
     else if (MODE.isClock()) {
@@ -427,7 +428,6 @@ bool modeButtonMonitor()
       MODE.reset();
       
       digitalWrite(pinModeButtonLED, LOW);
-//      setRgbColor(0, 0, 0);
       checkIfMissedAlarms();
     }
     else if (MODE.isTemperature()) {
@@ -457,7 +457,11 @@ void setBrightness(int value) {
   clockDisplay.setBrightness(value);
 }
 
-void statusRotate() {
+/**
+ * Manual override of wake/sleep visual light ("statusLight")
+ */
+void statusRotate()
+{
   printMessageWithTime(F("Override (red) button pressed"));
   
   digitalWrite(pinStatusButtonLED, HIGH);
@@ -472,15 +476,21 @@ void statusRotate() {
     statusWake();
   }
   else {
-    printMessageWithTime(F("Override OFF"));
-    statusLightOverride = OFF; // stop overriding
-    digitalWrite(pinStatusButtonLED, LOW);
-    checkIfMissedAlarms();
+    turnOffStatusOverride();
   }
   
 }
 
-void statusSleep() {
+void turnOffStatusOverride()
+{
+    printMessageWithTime(F("Override OFF"));
+    statusLightOverride = OFF; // stop overriding
+    digitalWrite(pinStatusButtonLED, LOW);
+    checkIfMissedAlarms();
+}
+
+void statusSleep()
+{
   statusLight = SLEEP; 
   digitalWrite(pinRedStatus, HIGH);
   digitalWrite(pinGreenStatus, LOW);
@@ -489,7 +499,8 @@ void statusSleep() {
   printMessageWithTime(F("Setting to status SLEEP"));
 }
 
-void statusWake() {
+void statusWake()
+{
   statusLight = WAKE;
   digitalWrite(pinGreenStatus, HIGH);
   digitalWrite(pinRedStatus, LOW);
@@ -498,7 +509,8 @@ void statusWake() {
   printMessageWithTime(F("Setting to status WAKE"));
 }
 
-void statusOff() {
+void statusOff()
+{
   statusLight = OFF;
   digitalWrite(pinGreenStatus, LOW);
   digitalWrite(pinRedStatus, LOW);
@@ -507,6 +519,10 @@ void statusOff() {
   printMessageWithTime(F("Setting to status OFF"));
 }
 
+/**
+ * Checks if alarms have been fired and adjusts wake/sleep light if needed.
+ * This check is currently run every 0.5 second.
+ */
 void checkAlarms()
 {
   if (statusLightOverride != OFF) {
