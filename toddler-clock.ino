@@ -38,7 +38,7 @@ const int LONG_PRESS_TIME           = 2500; // 2.5 secs
 const int ADJUST_TIME_DEFAULT_SPEED = 300; // in milliseconds
 const int MAX_SPEED                 = 25; // max speed for time change using up/down buttons (in 100ms units, so 25 = 2.5 secs)
 const int DEFAULT_WAKE_LENGTH       = 60 * 60; // in seconds (3,600 = 1 hour)
-const int MAX_OVERRIDE_TIME         = 30 * 60000; // in milliseconds (1.8M = 30 minutes)
+const long MAX_OVERRIDE_TIME        = 30 * 60000; // in milliseconds (1.8M = 30 minutes)
 const float DEFAULT_SLEEP_TIME      = 19.75; // 24-hr decimal time (e.g. 6:45pm is 18.75)
 const float DEFAULT_WAKE_TIME       = 6.5; // 24-hr decimal time (e.g. 6:30am is 6.5)
 
@@ -58,7 +58,7 @@ StatusLight statusLightOverride = OFF;
 unsigned long modeButtonPressedTime, modeButtonReleasedTime = 0;
 bool blinkLEDState = false;
 int curAdjustSpeed = ADJUST_TIME_DEFAULT_SPEED;
-int  DST;
+int DST;
 unsigned long millisSinceOverrideStart;
 
 // Object variables
@@ -547,6 +547,7 @@ void checkAlarms()
 {
   if (statusLightOverride != OFF) {
     if (millis() - millisSinceOverrideStart > MAX_OVERRIDE_TIME) {
+      printMessageWithTime(F("Turning off 'override' mode since 30 mins has elapsed"));
       turnOffStatusOverride(); // override has been on for max time, turn off override
     }
     else {
