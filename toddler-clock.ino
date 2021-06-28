@@ -39,6 +39,7 @@ const int ADJUST_TIME_DEFAULT_SPEED = 300; // in milliseconds
 const int MAX_SPEED                 = 25; // max speed for time change using up/down buttons (in 100ms units, so 25 = 2.5 secs)
 const int DEFAULT_WAKE_LENGTH       = 60 * 60; // in seconds (3,600 = 1 hour)
 const long MAX_OVERRIDE_TIME        = 30 * 60000; // in milliseconds (1.8M = 30 minutes)
+const long MAX_TEMP_DISPLAY_TIME    = 2 * 60000; // in milliseconds (120K = 2 minutes)
 const float DEFAULT_SLEEP_TIME      = 19.75; // 24-hr decimal time (e.g. 6:45pm is 18.75)
 const float DEFAULT_WAKE_TIME       = 6.5; // 24-hr decimal time (e.g. 6:30am is 6.5)
 
@@ -59,7 +60,8 @@ unsigned long modeButtonPressedTime, modeButtonReleasedTime = 0;
 bool blinkLEDState = false;
 int curAdjustSpeed = ADJUST_TIME_DEFAULT_SPEED;
 int DST;
-unsigned long millisSinceOverrideStart;
+unsigned long millisSinceOverrideStart; // millis when override mode was last activated
+unsigned long millisSinceTempStart;     // millis when temp display was last activated
 
 // Object variables
 ToddlerClockMode MODE;
@@ -141,87 +143,102 @@ void setDaylightSavings(int newDstState)
   checkIfMissedAlarms();
 }
 
+/**
+ * Checks if events have timed out and need to be reset
+ */
+void function checkEventTimeouts()
+{
+  unsigned long curMillis = millis();
+ 
+  // Check if temperature display has exceeded MAX_TEMP_DISPLAY_TIME
+  if (MODE.isTemperature() && (curMillis - millisSinceTempStart > MAX_TEMP_DISPLAY_TIME)) {
+    millisSinceTempStart = 0;
+
+    MODE.reset();
+    digitalWrite(pinTempButtonLED, LOW);
+  }
+
+  // Check if override mode has exceeded MAX_OVERRIDE_TIME
+  if (statusLightOverride != OFF && (curMillis - millisSinceOverrideStart > MAX_OVERRIDE_TIME)) {
+    millisSinceOverrideStart = 0;
+
+    printMessageWithTime(F("Turning off 'override' mode since 30 mins has elapsed"));
+    turnOffStatusOverride(); // override has been on for max time, turn off override
+  }
+}
+
+/*
+ * Main arduino loop
+ */
 void loop()
 {
   bool displayNeedsUpdating = false;
-  int prevMode = MODE.getMode();
   
   // Update time display every 500ms
   if (writeTimeToDisplay.update()) {
     displayNeedsUpdating = true;
+    checkEventTimeouts();
     checkAlarms();
   }
 
-  // Read and update dimmer value
-  dimmerRawValue = analogRead(pinPot);
-  dimmerValue = map(dimmerRawValue, 0, 1023, 0, 16);
-  if (dimmerValue != CUR_BRIGHTNESS) {
-    setBrightness(dimmerValue);
+  if (dimmerPotMonitor()) { // DST button [green potentimeter]
     clockDisplay.writeDisplay();
   }
 
-  buttonDst.loop();
-  if (buttonDst.isPressed()) {
-    setDaylightSavings(0);
-  }
-  if (buttonDst.isReleased()) {
-    setDaylightSavings(1);
-  }
-
-  // Tempreature display button [orange LED button]
-  buttonTempShow.loop();
-  if (buttonTempShow.isPressed()) {
-    printMessageWithTime(F("Temp (orange) button pressed"));
-    if (MODE.isClock()) {
-      MODE.setTemperature();
-    } else if (MODE.isTemperature()) {
-      MODE.reset();
-    }
-
-    digitalWrite(pinTempButtonLED, MODE.isTemperature() ? HIGH : LOW);
+  if (DSTButtonMonitor()) { // DST button [yellow switch]
     displayNeedsUpdating = true;
   }
 
-  // Status button (status rotate and set alarm) [red LED button]
-  if (statusButtonMonitor()) {
+  if (temperatureButtonMonitor()) { // Temperature display button [orange LED button]
     displayNeedsUpdating = true;
   }
 
-  // Mode button (mode and set time) [white LED button]
-  if (modeButtonMonitor()) {
+  if (statusButtonMonitor()) { // Status button (status rotate and set alarm) [red LED button]
     displayNeedsUpdating = true;
   }
 
-  if (timeChangeMonitor(timesetDateTime)) {
+  if (modeButtonMonitor()) { // Mode button (mode and set time) [white LED button]
+    displayNeedsUpdating = true;
+  }
+
+  if (timeChangeMonitor(timesetDateTime)) { // SIDE-EFFECT: updates "timesetDateTime" variable
     displayNeedsUpdating = true;
   }
 
   // Update the display when needed
   if (displayNeedsUpdating) {
-    now = rtc.now();
-    if (MODE.modeJustChanged()) {
-      if (MODE.isSetTime()) { // time-set mode just activated
-        timesetDateTime = now;
-      }
-      else if (MODE.isSetSleepAlarm()) {
-        timesetDateTime = rtc.getAlarm(ALARM_SLEEP);
-      }
-      else if (MODE.isSetWakeAlarm()) {
-        timesetDateTime = rtc.getAlarm(ALARM_WAKE);
-      } 
-    }
-    
-    if (MODE.isTemperature()) {
-      updateTemperatureDisplay();
-    } else {
-      updateTimeDisplay(MODE.isInAnySet() ? timesetDateTime : now);
-    }
+    updateDisplay(timesetDateTime); // SIDE-EFFECT: updates "timesetDateTime" variable
   }
 
   blinkTimer.update();
   if (DEBUG) debugTimer.update();
 }
 // -- end main loop 
+
+/**
+ * Updates the main 4-digit LED display
+ */
+void updateDisplay(DateTime &timesetDateTime)
+{
+  now = rtc.now();
+  if (MODE.modeJustChanged()) {
+    if (MODE.isSetTime()) { // time-set mode just activated
+      timesetDateTime = now;
+    }
+    else if (MODE.isSetSleepAlarm()) {
+      timesetDateTime = rtc.getAlarm(ALARM_SLEEP);
+    }
+    else if (MODE.isSetWakeAlarm()) {
+      timesetDateTime = rtc.getAlarm(ALARM_WAKE);
+    } 
+  }
+    
+  if (MODE.isTemperature()) {
+    updateTemperatureDisplay();
+  } else {
+    updateTimeDisplay(MODE.isInAnySet() ? timesetDateTime : now);
+  }
+}
 
 /**
  * Blink LED lights
@@ -270,6 +287,8 @@ void updateTemperatureDisplay()
 {
   float celcius = rtc.getTemperature();
   float temperatureVal;
+  millisSinceTempStart = millis();
+
   clockDisplay.clear();
     
   if (USE_CELCIUS) {
@@ -302,6 +321,7 @@ void updateTimeDisplay(DateTime timeToDisplay)
 {
   uint8_t colonBitMask = 0x00;
   int decimalTime = getDecimalTime(timeToDisplay, USE_24_HR_CLOCK);
+
   colon = !colon;
 
   bool setttingUpOrDown = (buttonSetUp.getState() == LOW) || (buttonSetDown.getState() == LOW);
@@ -396,6 +416,65 @@ bool timeChangeMonitor(DateTime &timesetDateTime) {
   return false;
 }
 
+/**
+ * Monitors the analog pot (green potentimeter)
+ */
+bool dimmerPotMonitor()
+{
+  dimmerRawValue = analogRead(pinPot);
+  dimmerValue = map(dimmerRawValue, 0, 1023, 0, 16);
+  if (dimmerValue != CUR_BRIGHTNESS) {
+    setBrightness(dimmerValue);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Monitors the status of DST (yellow) switch, and responds to a press
+ */
+bool DSTButtonMonitor()
+{
+  buttonDst.loop();
+
+  if (buttonDst.isPressed()) {
+    setDaylightSavings(0);
+    return true;
+  }
+  if (buttonDst.isReleased()) {
+    setDaylightSavings(1);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Monitors the status of temperature (orange) button, and responds to a press
+ */
+bool temperatureButtonMonitor()
+{
+  buttonTempShow.loop();
+
+  if (buttonTempShow.isPressed()) {
+    printMessageWithTime(F("Temp (orange) button pressed"));
+    if (MODE.isClock()) {
+      MODE.setTemperature();
+    } else if (MODE.isTemperature()) {
+      MODE.reset();
+    }
+
+    digitalWrite(pinTempButtonLED, MODE.isTemperature() ? HIGH : LOW);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Monitors the status of the status (red) button, and responds to a press
+ */
 bool statusButtonMonitor()
 {
   buttonStatusRotate.loop();
@@ -427,6 +506,7 @@ bool statusButtonMonitor()
 }
 
 /** 
+ * Monitors the status of the mode (white) button, and responds to a press
  *  @return [bool] - Returns true if the display needs updating
  */
 bool modeButtonMonitor()
@@ -504,7 +584,6 @@ void turnOffStatusOverride()
 {
     printMessageWithTime(F("Override OFF"));
     statusLightOverride = OFF; // stop overriding
-    millisSinceOverrideStart = 0;
     digitalWrite(pinStatusButtonLED, LOW);
     checkIfMissedAlarms();
 }
@@ -546,13 +625,7 @@ void statusOff()
 void checkAlarms()
 {
   if (statusLightOverride != OFF) {
-    if (millis() - millisSinceOverrideStart > MAX_OVERRIDE_TIME) {
-      printMessageWithTime(F("Turning off 'override' mode since 30 mins has elapsed"));
-      turnOffStatusOverride(); // override has been on for max time, turn off override
-    }
-    else {
-      return; // alarm status lights have been overridden - do nothing
-    }
+    return; // alarm status lights have been overridden - do nothing
   }
   
   if (rtc.alarmFired(ALARM_SLEEP)) {
