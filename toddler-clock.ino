@@ -440,10 +440,12 @@ bool DSTButtonMonitor()
   buttonDst.loop();
 
   if (buttonDst.isPressed()) {
+    printMessageWithTime(F("DST (yellow) button pushed in. Sdding 1 hour."));
     setDaylightSavings(0);
     return true;
   }
   if (buttonDst.isReleased()) {
+    printMessageWithTime(F("DST (yellow) button released. Subtracting 1 hour."));
     setDaylightSavings(1);
     return true;
   }
