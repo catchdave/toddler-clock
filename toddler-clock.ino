@@ -17,8 +17,6 @@ void blinkLEDLights();
 // Pins
 const int pinPot             = A0;
 const int pinModeButton      = 3;  // white button
-const int pinRedStatus       = 6;
-const int pinGreenStatus     = 7;
 const int pinStatusButton    = 8;  // red button The override button for the wake/sleep light (AKA Status Light)
 const int pinTempButton      = 2; // orange button
 const int pinStatusButtonLED = A1; // red led button. The LED for the statuslight button.
@@ -30,6 +28,11 @@ const int pinRgbBlue         = 11;
 const int pinSetUp           = 4;
 const int pinSetDown         = 5;
 const int pinDstButton       = 13; // yellow switch
+
+/** Unused hardware: red/green status light. The green light doesn't really shine through wood veneer well, so disabled for now
+const int pinRedStatus       = 6;
+const int pinGreenStatus     = 7;
+**/
 
 // Settings
 const bool DEBUG                    = false; // Set to true to print debug stats to console every second
@@ -100,8 +103,6 @@ void setup()
   initializeRtc();
   now = rtc.now();
 
-  pinMode(pinRedStatus, OUTPUT); 
-  pinMode(pinGreenStatus, OUTPUT); 
   pinMode(pinStatusButtonLED, OUTPUT); 
   pinMode(pinModeButtonLED, OUTPUT); 
   pinMode(pinTempButtonLED, OUTPUT);
@@ -146,7 +147,7 @@ void setDaylightSavings(int newDstState)
 /**
  * Checks if events have timed out and need to be reset
  */
-void function checkEventTimeouts()
+void checkEventTimeouts()
 {
   unsigned long curMillis = millis();
  
@@ -591,8 +592,6 @@ void turnOffStatusOverride()
 void statusSleep()
 {
   statusLight = SLEEP; 
-  digitalWrite(pinRedStatus, HIGH);
-  digitalWrite(pinGreenStatus, LOW);
   setRgbColor(255, 0, 0);
 
   printMessageWithTime(F("Setting to status SLEEP"));
@@ -601,8 +600,6 @@ void statusSleep()
 void statusWake()
 {
   statusLight = WAKE;
-  digitalWrite(pinGreenStatus, HIGH);
-  digitalWrite(pinRedStatus, LOW);
   setRgbColor(0, 255, 0);
 
   printMessageWithTime(F("Setting to status WAKE"));
@@ -611,8 +608,6 @@ void statusWake()
 void statusOff()
 {
   statusLight = OFF;
-  digitalWrite(pinGreenStatus, LOW);
-  digitalWrite(pinRedStatus, LOW);
   setRgbColor(0, 0, 0);
 
   printMessageWithTime(F("Setting to status OFF"));
